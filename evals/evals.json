@@ -1,0 +1,73 @@
+{
+  "skill_name": "repurpose-youtube-video",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Repurpose this YouTube video for my LinkedIn and Instagram: https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "expected_output": "Two complete posts generated: one LinkedIn post (professional tone, 150-300 words, hashtags) and one Instagram post (engaging, emojis, hashtags, CTA). Status updates shown throughout. API key loaded from .env without asking user for it.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "loads-api-key-from-env",
+          "description": "API key read from .env file, never requested from user in chat"
+        },
+        {
+          "name": "linkedin-post-generated",
+          "description": "LinkedIn post is present, professional tone, 150-300 words"
+        },
+        {
+          "name": "instagram-post-generated",
+          "description": "Instagram post is present, includes emojis, hashtags, and a CTA"
+        },
+        {
+          "name": "progress-status-shown",
+          "description": "Step-by-step status messages shown (e.g. Extracting video..., Writing posts...)"
+        },
+        {
+          "name": "visual-creation-attempted",
+          "description": "Skill attempts to create visuals for both platforms via Blotato"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Turn this video into a LinkedIn post: https://youtu.be/9bZkp7q19f0",
+      "expected_output": "LinkedIn post generated from the video content. Skill may warn about missing Instagram account or only create LinkedIn content. Professional tone, insights, hashtags present.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "linkedin-post-generated",
+          "description": "LinkedIn post is generated with professional tone and hashtags"
+        },
+        {
+          "name": "short-url-handled",
+          "description": "Short youtu.be URL accepted and processed without error"
+        },
+        {
+          "name": "no-key-requested-in-chat",
+          "description": "API key never asked for in the conversation"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Repurpose this video for social media: https://www.youtube.com/watch?v=XXXINVALIDXXX",
+      "expected_output": "Clear, friendly error message explaining the video could not be found or extracted. Skill stops gracefully without crashing or hallucinating content.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "graceful-error-message",
+          "description": "Error is communicated clearly and helpfully, not as a raw exception"
+        },
+        {
+          "name": "no-fake-content",
+          "description": "Skill does not invent or hallucinate post content when extraction fails"
+        },
+        {
+          "name": "suggests-next-step",
+          "description": "Error message suggests what the user can do (check URL, try another video, etc.)"
+        }
+      ]
+    }
+  ]
+}
