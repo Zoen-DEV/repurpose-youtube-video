@@ -38,12 +38,12 @@ Claude Code carga automáticamente los skills que viven en `~/.claude/skills/`.
 
 **Windows (PowerShell):**
 ```powershell
-git clone https://github.com/Zoen-DEV/repurpuse-youtube-video.git "$env:USERPROFILE\.claude\skills\repurpose-youtube-video"
+git clone https://github.com/Zoen-DEV/repurpose-youtube-video.git "$env:USERPROFILE\.claude\skills\repurpose-youtube-video"
 ```
 
 **macOS / Linux:**
 ```bash
-git clone https://github.com/Zoen-DEV/repurpuse-youtube-video.git ~/.claude/skills/repurpose-youtube-video
+git clone https://github.com/Zoen-DEV/repurpose-youtube-video.git ~/.claude/skills/repurpose-youtube-video
 ```
 
 ### 2. Instala las dependencias de Python
