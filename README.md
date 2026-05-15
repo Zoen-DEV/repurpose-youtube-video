@@ -10,14 +10,15 @@ Publicación vía la API de [Blotato](https://blotato.com).
 
 A partir de una URL de YouTube, el skill:
 
-1. Extrae metadata y transcript del video (sin coste de API, usando `yt-dlp` + `youtube-transcript-api`).
-2. Te pregunta tono y objetivo de los posts.
-3. Redacta el copy adaptado a cada plataforma (LinkedIn 150–300 palabras, Instagram 80–150).
-4. Genera un visual con IA (o usa imágenes que tú le pases).
-5. Te muestra todo en bloque y espera tu aprobación explícita.
-6. Publica o programa los posts vía Blotato.
+1. Extrae metadata y transcript del video (sin coste de API, usando `yt-dlp` + `youtube-transcript-api`) y **detecta el idioma** (es/en) para redactar en consecuencia.
+2. Te pregunta tono y objetivo **por red** (LinkedIn e Instagram pueden tener registros distintos) — salvo que ya los hayas pasado en el comando.
+3. Redacta el copy adaptado a cada plataforma (LinkedIn 150–300 palabras, Instagram 80–150), nutriendo los hashtags desde los `tags` y `chapters` del propio video y exigiéndose **fidelidad a la transcripción** (no inventa datos, citas ni cifras).
+4. Humaniza los textos eliminando muletillas, vocabulario inflado y otras marcas típicas de IA (em-dashes, emojis decorativos, hooks genéricos…), en español y en inglés.
+5. Genera un visual con IA (o usa imágenes que tú le pases).
+6. Te muestra **todo en un único bloque de aprobación** (posts + visuales + timing) y espera tu confirmación explícita.
+7. Publica o programa los posts vía Blotato — o no publica nada si pasaste `dry-run: si`.
 
-> **Regla de oro:** el skill nunca publica sin una confirmación manual `sí` en el paso 6. Está hardcodeado en `SKILL.md`.
+> **Regla de oro:** el skill nunca publica sin una confirmación manual `sí` en el paso 6. Está hardcodeado en `SKILL.md`. Es el único punto de aprobación.
 
 ---
 
@@ -49,10 +50,15 @@ git clone https://github.com/Zoen-DEV/repurpose-youtube-video.git ~/.claude/skil
 ### 2. Instala las dependencias de Python
 
 ```bash
-python -m pip install yt-dlp youtube-transcript-api
+python -m pip install yt-dlp youtube-transcript-api Pillow
 ```
 
-No hay más dependencias: el cliente HTTP de Blotato usa solo `urllib` de la stdlib.
+- `yt-dlp` + `youtube-transcript-api` → extracción del video.
+- `Pillow` → text overlay sobre las imágenes de LinkedIn (hook 4:5) e Instagram (título en single, Hook/Info/Créditos en carrusel). Si Pillow falla al importar, el skill avisa y publica la imagen limpia de Freepik sin overlay.
+
+El cliente HTTP de Blotato usa solo `urllib` de la stdlib — sin otras dependencias.
+
+**Fuente del overlay (opcional):** `image_overlay.py` busca, en este orden: la env var `OVERLAY_FONT_PATH`, un `font.ttf` / `font-bold.ttf` junto al script, las fuentes del sistema (Arial / Helvetica / DejaVu / Liberation), y como último recurso una bitmap default. Si quieres tu propia tipografía, copia el `.ttf` al directorio `scripts/` con esos nombres.
 
 ### 3. Configura tus credenciales de Blotato
 
@@ -113,15 +119,26 @@ Cualquier otro fraseo ("repurpose this video", "summarize this YouTube clip", et
 
 Puedes añadir cualquiera de estos campos al comando:
 
-| Campo | Valores | Default |
-|---|---|---|
-| `images:` | rutas locales o URLs separadas por coma | (se genera visual con IA) |
-| `formato-instagram:` | `imagen-unica` \| `carrusel` | `imagen-unica` |
-| `publicar:` | `ahora` \| `YYYY-MM-DDTHH:MM:SSZ` (UTC) | `ahora` |
+| Campo | Valores | Default | Efecto |
+|---|---|---|---|
+| `images:` | rutas locales o URLs separadas por coma | (se genera visual con IA) | Salta la generación de visual con IA y usa esas imágenes (sin overlay) |
+| `formato-instagram:` | `imagen-unica` \| `carrusel` | `imagen-unica` | Si se pasa, el skill no pregunta el formato |
+| `tono:` | `inspiracional` \| `educativo` \| `personal` | (pregunta en Step 3) | **Default global** aplicado a las dos plataformas; los overrides por red ganan |
+| `tono-linkedin:` | `inspiracional` \| `educativo` \| `personal` | (toma `tono:` o se pregunta) | **Override solo para LinkedIn** |
+| `tono-instagram:` | `inspiracional` \| `educativo` \| `personal` | (toma `tono:` o se pregunta) | **Override solo para Instagram** |
+| `objetivo:` | `awareness` \| `engagement` \| `trafico` | (pregunta en Step 3) | **Default global** aplicado a las dos plataformas; los overrides por red ganan |
+| `objetivo-linkedin:` | `awareness` \| `engagement` \| `trafico` | (toma `objetivo:` o se pregunta) | **Override solo para LinkedIn** |
+| `objetivo-instagram:` | `awareness` \| `engagement` \| `trafico` | (toma `objetivo:` o se pregunta) | **Override solo para Instagram** |
+| `idioma:` | `es` \| `en` \| `auto` | `auto` | `auto` detecta del transcript; ES/EN soportados |
+| `solo:` | `linkedin` \| `instagram` | (ambas) | Publica solo en una plataforma; salta la otra entera |
+| `dry-run:` | `si` | `no` | Genera y muestra todo, pero **no publica nada** |
+| `publicar:` | `ahora` \| ISO-8601 \| **lenguaje natural** ("mañana 9am", "viernes 18h", "el 3 de junio a las 10am") | `ahora` | El natural se convierte a ISO-8601 UTC y se confirma en el Step 6 |
+
+> Precedencia: `tono-<red>:` > `tono:` > pregunta al usuario. Idem para `objetivo:`. Step 3 pregunta **solo** las ranuras que queden sin resolver.
 
 ### Ejemplos
 
-**Caso básico** (visuales generados por IA, publicación inmediata):
+**Caso básico** (visuales generados por IA, publicación inmediata, idioma auto):
 ```
 Crear post para Instagram y LinkedIn:
 
@@ -137,7 +154,45 @@ images: C:\imagenes\slide1.jpg, C:\imagenes\slide2.jpg, C:\imagenes\slide3.jpg
 formato-instagram: carrusel
 ```
 
-**Publicación programada:**
+**Sin preguntas, todo predefinido + scheduling en lenguaje natural:**
+```
+Crear post para Instagram y LinkedIn:
+
+youtube-link: https://youtu.be/dQw4w9WgXcQ
+tono: educativo
+objetivo: engagement
+publicar: mañana 9am
+```
+
+**Tono y objetivo distintos por red** (LinkedIn más educativo, Instagram más inspiracional):
+```
+Crear post para Instagram y LinkedIn:
+
+youtube-link: https://youtu.be/dQw4w9WgXcQ
+tono-linkedin: educativo
+objetivo-linkedin: engagement
+tono-instagram: inspiracional
+objetivo-instagram: awareness
+```
+
+**Publicar solo en LinkedIn, en inglés:**
+```
+Crear post para Instagram y LinkedIn:
+
+youtube-link: https://youtu.be/dQw4w9WgXcQ
+solo: linkedin
+idioma: en
+```
+
+**Dry-run para revisar sin publicar:**
+```
+Crear post para Instagram y LinkedIn:
+
+youtube-link: https://youtu.be/dQw4w9WgXcQ
+dry-run: si
+```
+
+**Publicación programada con timestamp explícito:**
 ```
 Crear post para Instagram y LinkedIn:
 
@@ -149,16 +204,24 @@ publicar: 2026-06-01T14:00:00Z
 
 ## Cómo funciona (los 8 pasos)
 
-1. **Extraer video** — metadata + transcript con `yt-dlp` y `youtube-transcript-api`. Sin API key.
-2. **Cuentas** — usa los IDs del `.env`, o los pide vía la API de Blotato si están vacíos.
-3. **Preguntas de calidad** — tono (inspiracional / educativo / personal) y objetivo (awareness / engagement / tráfico).
-4. **Escribir posts** — Claude redacta directamente LinkedIn e Instagram (no se llama a otro LLM externo).
-5. **Visuales** — usa imágenes propias si las pasaste, o genera con plantillas de Blotato.
-6. **Aprobación final OBLIGATORIA** — bloque consolidado con posts + visuales + timing. Espera `sí` / `editar` / `cancelar`.
-7. **Publicar** — inmediato o programado (`scheduledAt` ISO-8601).
-8. **Resumen** — URLs públicas + status de cada post.
+1. **Extraer video + detectar idioma** — metadata + transcript con `yt-dlp` y `youtube-transcript-api`, sin API key. Claude detecta automáticamente si el video está en español o inglés (override con `idioma:`).
+2. **Cuentas** — usa los IDs del `.env`, o los pide vía la API de Blotato si están vacíos. Respeta `solo:` y omite la plataforma excluida.
+3. **Preguntas de calidad — POR RED** — tono y objetivo se resuelven por plataforma (precedencia `tono-<red>:` > `tono:` > pregunta). Solo se pregunta lo que falta. Si Step 3 corre porque falta algo, muestra **solo las ranuras no resueltas** (LinkedIn / Instagram / ambas).
+4. **Escribir posts** — Claude redacta directamente LinkedIn e Instagram en el idioma detectado (no se llama a otro LLM externo) usando el `tono` y `objetivo` resueltos por red. Citas y datos: solo lo que esté literal en el transcript. Hashtags: derivados de los `tags` y `chapters` del video. **LinkedIn incluye la URL del video original** justo antes de los hashtags (LinkedIn auto-unfurla la preview); Instagram refiere a "link en bio" en lugar de pegar la URL.
+4.5. **Humanizar** — Claude limpia las marcas típicas de IA (muletillas y vocabulario inflado en ES y EN, em-dashes excesivos, emojis decorativos apilados, hooks genéricos…) en silencio. No hay aprobación intermedia.
+5. **Visuales** — usa imágenes propias si las pasaste (subiéndolas a Blotato vía presigned upload si son rutas locales; sin overlay), o genera con Freepik Mystic. Si `formato-instagram:` ya viene en el comando, no se pregunta nada.
+   - **LinkedIn → hook overlay** sobre la imagen 4:5 (1080×1350) — el primer renglón del post se imprime al pie de la imagen para detener el scroll.
+   - **Instagram single → título overlay** al pie de la imagen (1:1).
+   - **Instagram carrusel → 3 slides con roles fijos** (1:1):
+     - Slide 1 = **Hook**: título grande centrado + "Desliza →".
+     - Slide 2 = **Info**: encabezado + 3-5 bullets cortos con las ideas clave.
+     - Slide 3 = **Créditos**: canal del video + título + "Link en bio 🔗".
+   - El texto lo aplica `image_overlay.py` (Pillow). Si Pillow no está disponible o falla el upload, se cae a la imagen limpia de Mystic.
+6. **Aprobación final OBLIGATORIA (única)** — bloque consolidado con posts + visuales + timing. Espera `sí` / `editar` / `cancelar`. En `editar`, los cambios se re-humanizan y se vuelve a mostrar el bloque.
+7. **Publicar** — inmediato, programado en ISO-8601, o programado en lenguaje natural ("mañana 9am") que el skill convierte a UTC. Si `dry-run: si`, **se omite la llamada de publicación**.
+8. **Resumen** — URLs públicas + status de cada post. En dry-run, `Status: dry-run (no se envió)`.
 
-El detalle completo (prompts exactos, manejo de errores, edge cases) está en [SKILL.md](SKILL.md).
+El detalle completo (prompts exactos, manejo de errores, edge cases, checklist completa de humanización) está en [SKILL.md](SKILL.md).
 
 ---
 
@@ -171,7 +234,9 @@ repurpose-youtube-video/
 ├── .env.example              # Plantilla de credenciales
 ├── .gitignore                # Excluye .env y otros artefactos
 ├── scripts/
-│   └── blotato_client.py     # Cliente HTTP de Blotato + extractor de YouTube
+│   ├── blotato_client.py     # Cliente HTTP de Blotato + extractor de YouTube + media upload
+│   ├── freepik_client.py     # Cliente HTTP de Freepik Mystic (text-to-image)
+│   └── image_overlay.py      # Text overlay con Pillow para visuales de LinkedIn e Instagram
 └── evals/
     └── evals.json            # Casos de evaluación del trigger
 ```
@@ -188,7 +253,10 @@ repurpose-youtube-video/
 | `429 Too Many Requests` | Rate limit de Blotato | El skill reintenta una vez automáticamente tras 10s |
 | `Multiple LinkedIn accounts found` | Más de una cuenta conectada en Blotato | Copia el ID deseado al `.env` y vuelve a correr |
 | Transcript vacío / falla la extracción | Video sin subtítulos, privado o con región bloqueada | El skill continúa solo con el título (warning visible en consola) |
-| Visual no se genera | Timeout o template caído en Blotato | El skill publica solo el texto (warning) |
+| Visual no se genera | Timeout o template caído en Blotato/Freepik | El skill publica solo el texto (warning) |
+| Carrusel se publica sin texto | Pillow no instalado o `ov.render_*` falló | Instala `Pillow` (`python -m pip install Pillow`); el skill ya usa la imagen limpia como fallback |
+| Tipografía del overlay se ve fea | El sistema no tiene Arial/Helvetica/DejaVu y se usó la bitmap default | Coloca un `.ttf` en `scripts/font-bold.ttf` (y opcional `font.ttf`) o exporta `OVERLAY_FONT_PATH=ruta/a/tu/font.ttf` |
+| Upload del PNG a Blotato falla | Endpoint `/v2/media/uploads` rate-limited (10/min) o presigned URL caducada | Reintenta; si insiste, el skill cae a la URL directa de Freepik como fallback |
 
 ---
 

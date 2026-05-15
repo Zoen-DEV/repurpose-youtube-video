@@ -9,6 +9,12 @@ Discovered API quirks (from live usage):
   - Instagram rejects posts with more than 5 hashtags
   - Instagram carousel = multiple URLs in mediaUrls
   - Scheduled publishing: add "scheduledAt": "ISO-8601" to the post body
+
+Media upload (used by image_overlay flow):
+  - POST /v2/media       body: {"url": "<public_url>"}   -> {"url": "<blotato_hosted_url>"}
+  - POST /v2/media/uploads  body: {"filename": "..."}   -> {"presignedUrl": "...", "publicUrl": "..."}
+    then PUT presignedUrl with Content-Type: <mime> and the raw binary body.
+    Rate-limited to 10 req/min per user. Files <= 200MB.
 """
 
 import os, re, time, json, sys, urllib.request, urllib.error
@@ -49,6 +55,7 @@ def load_config() -> dict:
         "api_key": key,
         "linkedin_account_id": env.get("BLOTATO_LINKEDIN_ACCOUNT_ID", ""),
         "instagram_account_id": env.get("BLOTATO_INSTAGRAM_ACCOUNT_ID", ""),
+        "freepik_api_key": env.get("FREEPIK_API_KEY", ""),
     }
 
 
@@ -99,6 +106,47 @@ def _poll(
     raise TimeoutError(f"Polling {endpoint} timed out after {max_attempts * interval}s")
 
 
+# ── Media upload ───────────────────────────────────────────────────────────────
+
+def upload_media_from_url(public_url: str, *, api_key: str) -> str:
+    """
+    Re-host a publicly accessible media URL on Blotato.
+    Useful for taking a Freepik-hosted URL and getting a Blotato-hosted one
+    so the post is decoupled from Freepik's CDN lifetime.
+    Returns the new Blotato-hosted URL.
+    """
+    resp = _request("POST", "/media", {"url": public_url}, api_key=api_key)
+    return resp.get("url") or _unwrap(resp).get("url", "")
+
+
+def upload_media_local(file_bytes: bytes, filename: str, *, api_key: str, mime: str = "image/png") -> str:
+    """
+    Upload raw binary (e.g. a Pillow-rendered PNG) to Blotato via presigned URL.
+    Two-step:
+      1. POST /v2/media/uploads with {"filename": ...}  -> {presignedUrl, publicUrl}
+      2. PUT presignedUrl with the binary body and Content-Type: <mime>
+    Returns the publicUrl (usable in mediaUrls of a post).
+    The presigned URL expires quickly, so the PUT happens immediately after step 1.
+    """
+    resp = _request("POST", "/media/uploads", {"filename": filename}, api_key=api_key)
+    presigned = resp.get("presignedUrl") or _unwrap(resp).get("presignedUrl")
+    public = resp.get("publicUrl") or _unwrap(resp).get("publicUrl")
+    if not presigned or not public:
+        raise RuntimeError(f"Blotato presigned upload: missing URLs in response: {resp}")
+
+    put_req = urllib.request.Request(
+        presigned, data=file_bytes, method="PUT",
+        headers={"Content-Type": mime},
+    )
+    try:
+        with urllib.request.urlopen(put_req) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode(errors="replace")
+        raise RuntimeError(f"Blotato presigned PUT failed ({e.code}): {body_text}") from e
+    return public
+
+
 # ── API wrappers ───────────────────────────────────────────────────────────────
 
 def extract_youtube(url: str, *, api_key: str) -> dict:
@@ -134,6 +182,7 @@ def extract_youtube_local(url: str) -> dict:
     description = (info.get("description") or "")[:3000]
     tags = info.get("tags") or []
     chapters = [c["title"] for c in (info.get("chapters") or []) if isinstance(c, dict) and "title" in c]
+    channel = info.get("channel") or info.get("uploader") or ""
 
     # Transcript via youtube-transcript-api
     transcript_text = ""
@@ -158,6 +207,7 @@ def extract_youtube_local(url: str) -> dict:
         "keyPoints": [],
         "tags": tags,
         "chapters": chapters,
+        "channel": channel,
     }
 
 
