@@ -212,13 +212,14 @@ def render_hook(base_url: str, title: str, *, lang: str = "es") -> bytes:
     img = _add_gradient(img, position="full", strength=140)
     draw = ImageDraw.Draw(img)
 
-    title_font = _load_font(82, bold=True)
+    font_size = 82
+    title_font = _load_font(font_size, bold=True)
     subline_font = _load_font(34, bold=False)
 
     title_lines = _wrap(title, title_font, _INNER_W, draw)
-    # Fit title font down if it overflows vertically
-    while len(title_lines) > 4 and title_font.size > 50:
-        title_font = _load_font(title_font.size - 6, bold=True)
+    while len(title_lines) > 4 and font_size > 50:
+        font_size -= 6
+        title_font = _load_font(font_size, bold=True)
         title_lines = _wrap(title, title_font, _INNER_W, draw)
 
     total_h = sum((title_font.getbbox(l)[3] - title_font.getbbox(l)[1]) for l in title_lines) + (len(title_lines) - 1) * 14
@@ -233,42 +234,54 @@ def render_hook(base_url: str, title: str, *, lang: str = "es") -> bytes:
 
 
 def render_info(base_url: str, body_lines: list[str], *, lang: str = "es", heading: str | None = None) -> bytes:
-    """Slide 2 - small heading + 3-5 bullet points."""
+    """Slide 2 - small heading + 2-3 short sentences (paragraph, centered, no bullets)."""
     img = _fetch_base(base_url)
     img = _add_gradient(img, position="full", strength=160)
     draw = ImageDraw.Draw(img)
 
     head_font = _load_font(36, bold=True)
-    body_font = _load_font(46, bold=True)
+    body_font = _load_font(44, bold=False)
 
     if heading is None:
-        heading = "CLAVES" if lang == "es" else "KEY POINTS"
+        heading = "DE QUÉ VA" if lang == "es" else "THE IDEA"
 
-    y = _MARGIN + 20
+    # Wrap all sentences into display lines first so we can vertically center the block
+    all_display_lines: list[tuple[list[str], bool]] = []  # (wrapped_lines, is_first_sentence)
+    for i, raw in enumerate(body_lines[:3]):
+        wrapped = _wrap(raw.strip(), body_font, _INNER_W, draw)
+        if wrapped:
+            all_display_lines.append((wrapped, i == 0))
+
+    line_h = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
+    sentence_gap = 28  # extra vertical space between sentences
+    line_spacing = 10
+
+    total_body_h = 0
+    for wrapped, _ in all_display_lines:
+        total_body_h += len(wrapped) * (line_h + line_spacing) + sentence_gap
+    total_body_h -= sentence_gap  # no trailing gap
+
+    head_h = head_font.getbbox(heading)[3] - head_font.getbbox(heading)[1]
+    head_gap = 56
+    total_h = head_h + head_gap + total_body_h
+
+    # Start centered on canvas
+    y = (1080 - total_h) // 2
+
+    # Heading
     head_w = draw.textlength(heading, font=head_font)
     draw.text(((1080 - head_w) / 2, y), heading, font=head_font, fill=(220, 220, 220))
-    y += 80
+    y += head_h + head_gap
 
-    # Bullets: wrap each line; prefix with a square bullet
-    bullet = "■"
-    bullet_font = _load_font(38, bold=True)
-    line_gap = 26
-    for raw in body_lines[:5]:
-        text_lines = _wrap(raw.strip(), body_font, _INNER_W - 60, draw)
-        if not text_lines:
-            continue
-        # bullet on first line, indented for the rest
-        bullet_w = draw.textlength(bullet, font=bullet_font) + 20
-        first = text_lines[0]
-        draw.text((_MARGIN, y), bullet, font=bullet_font, fill=(255, 200, 90))
-        draw.text((_MARGIN + bullet_w, y), first, font=body_font, fill=(255, 255, 255))
-        h = body_font.getbbox(first)[3] - body_font.getbbox(first)[1]
-        y += h + 8
-        for cont in text_lines[1:]:
-            draw.text((_MARGIN + bullet_w, y), cont, font=body_font, fill=(255, 255, 255))
-            h = body_font.getbbox(cont)[3] - body_font.getbbox(cont)[1]
-            y += h + 8
-        y += line_gap
+    # Sentences — centered, first sentence in accent color
+    for idx, (wrapped, is_first) in enumerate(all_display_lines):
+        fill = (255, 200, 90) if is_first else (255, 255, 255)
+        for line in wrapped:
+            line_w = draw.textlength(line, font=body_font)
+            draw.text(((1080 - line_w) / 2, y), line, font=body_font, fill=fill)
+            y += line_h + line_spacing
+        if idx < len(all_display_lines) - 1:
+            y += sentence_gap
 
     return _to_png_bytes(img)
 
@@ -280,7 +293,8 @@ def render_credits(base_url: str, channel: str, video_title: str, *, lang: str =
     draw = ImageDraw.Draw(img)
 
     label_font = _load_font(34, bold=False)
-    title_font = _load_font(56, bold=True)
+    font_size = 56
+    title_font = _load_font(font_size, bold=True)
     channel_font = _load_font(46, bold=True)
     cta_font = _load_font(36, bold=False)
 
@@ -289,8 +303,9 @@ def render_credits(base_url: str, channel: str, video_title: str, *, lang: str =
 
     # Compute block height first to center vertically
     title_lines = _wrap(video_title, title_font, _INNER_W, draw)
-    while len(title_lines) > 4 and title_font.size > 36:
-        title_font = _load_font(title_font.size - 4, bold=True)
+    while len(title_lines) > 4 and font_size > 36:
+        font_size -= 4
+        title_font = _load_font(font_size, bold=True)
         title_lines = _wrap(video_title, title_font, _INNER_W, draw)
 
     label_h = label_font.getbbox(label)[3] - label_font.getbbox(label)[1]
@@ -328,10 +343,12 @@ def render_single(base_url: str, title: str, *, lang: str = "es") -> bytes:
     img = _add_gradient(img, position="bottom", strength=210)
     draw = ImageDraw.Draw(img)
 
-    title_font = _load_font(68, bold=True)
+    font_size = 68
+    title_font = _load_font(font_size, bold=True)
     title_lines = _wrap(title, title_font, _INNER_W, draw)
-    while len(title_lines) > 3 and title_font.size > 44:
-        title_font = _load_font(title_font.size - 4, bold=True)
+    while len(title_lines) > 3 and font_size > 44:
+        font_size -= 4
+        title_font = _load_font(font_size, bold=True)
         title_lines = _wrap(title, title_font, _INNER_W, draw)
 
     total_h = sum((title_font.getbbox(l)[3] - title_font.getbbox(l)[1]) for l in title_lines) + (len(title_lines) - 1) * 12
@@ -358,10 +375,12 @@ def render_linkedin_hook(base_url: str, title: str, *, lang: str = "es") -> byte
     img = _add_gradient(img, position="bottom", strength=215)
     draw = ImageDraw.Draw(img)
 
-    title_font = _load_font(72, bold=True)
+    font_size = 72
+    title_font = _load_font(font_size, bold=True)
     title_lines = _wrap(title, title_font, _LI_INNER_W, draw)
-    while len(title_lines) > 4 and title_font.size > 46:
-        title_font = _load_font(title_font.size - 4, bold=True)
+    while len(title_lines) > 4 and font_size > 46:
+        font_size -= 4
+        title_font = _load_font(font_size, bold=True)
         title_lines = _wrap(title, title_font, _LI_INNER_W, draw)
 
     total_h = sum((title_font.getbbox(l)[3] - title_font.getbbox(l)[1]) for l in title_lines) + (len(title_lines) - 1) * 14

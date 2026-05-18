@@ -76,8 +76,12 @@ def _request(method: str, path: str, body: dict | None = None, *, api_key: str) 
         if e.code == 429:
             print("   [rate-limit] Waiting 10s and retrying...")
             time.sleep(10)
-            with urllib.request.urlopen(req) as resp:
-                return json.loads(resp.read())
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    return json.loads(resp.read())
+            except urllib.error.HTTPError as e2:
+                body2 = e2.read().decode(errors="replace")
+                raise RuntimeError(f"HTTP {e2.code} {method} {path}: {body2}") from e2
         raise RuntimeError(f"HTTP {e.code} {method} {path}: {body_text}") from e
 
 
@@ -300,6 +304,5 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python blotato_client.py <youtube_url>")
         sys.exit(1)
-    cfg = load_config()
-    result = extract_youtube(sys.argv[1], api_key=cfg["api_key"])
+    result = extract_youtube_local(sys.argv[1])
     print(json.dumps(result, indent=2))

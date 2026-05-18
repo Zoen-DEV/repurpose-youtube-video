@@ -214,7 +214,7 @@ publicar: 2026-06-01T14:00:00Z
    - **Instagram single → título overlay** al pie de la imagen (1:1).
    - **Instagram carrusel → 3 slides con roles fijos** (1:1):
      - Slide 1 = **Hook**: título grande centrado + "Desliza →".
-     - Slide 2 = **Info**: encabezado + 3-5 bullets cortos con las ideas clave.
+     - Slide 2 = **Info**: encabezado específico al video + 2-3 frases cortas que cuentan el argumento central (sin bullets).
      - Slide 3 = **Créditos**: canal del video + título + "Link en bio 🔗".
    - El texto lo aplica `image_overlay.py` (Pillow). Si Pillow no está disponible o falla el upload, se cae a la imagen limpia de Mystic.
 6. **Aprobación final OBLIGATORIA (única)** — bloque consolidado con posts + visuales + timing. Espera `sí` / `editar` / `cancelar`. En `editar`, los cambios se re-humanizan y se vuelve a mostrar el bloque.
@@ -263,7 +263,6 @@ repurpose-youtube-video/
 ## Limitaciones conocidas
 
 - **Solo dos plataformas** por ahora: LinkedIn e Instagram. Twitter/X, Threads y TikTok están en backlog.
-- **Template IDs hardcodeados** en `SKILL.md`. Si Blotato rota los IDs, el skill genera visuales con un fallback genérico (o falla en silencio). Issue abierto.
 - **Instagram limita a 5 hashtags**; otros límites pueden cambiar sin aviso del lado de Blotato.
 - **El trigger está en español**. Si quieres adaptarlo a otro idioma, edita el `description` en `SKILL.md` y el bloque de `Command format`.
 

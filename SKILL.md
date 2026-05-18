@@ -132,7 +132,7 @@ If `extract_youtube_local` raises an exception:
    ```
    Then fetch the video title from the YouTube page with WebFetch and proceed using that alone.
 
-From the result use: `title`, `description`, `transcript`, `tags`, `chapters`.
+From the result use: `title`, `description`, `transcript`, `tags`, `chapters`, `channel`.
 `summary` and `keyPoints` will be empty strings — **you** (Claude) should derive them from the transcript.
 
 **Detect content language** (used by Steps 4 and 5):
@@ -415,7 +415,7 @@ Cuando se usa carrusel **el formato es siempre 3 slides con roles fijos**:
 | Slide | Rol | Contenido overlay |
 |---|---|---|
 | 1 | **Hook** | Título grande centrado (máx 10 palabras) + "Desliza →" |
-| 2 | **Info** | Encabezado pequeño + 3-5 bullets cortos con las ideas clave del video |
+| 2 | **Argumento** | Encabezado generado (específico al video) + 2-3 frases cortas que cuentan el argumento central |
 | 3 | **Créditos** | "VIDEO ORIGINAL" + título del video + canal + "Link en bio 🔗" |
 
 1. Genera 3 bases visuales con Mystic, manteniendo coherencia (mismo estilo/paleta/iluminación) y reservando negative space según el rol:
@@ -424,7 +424,7 @@ Cuando se usa carrusel **el formato es siempre 3 slides con roles fijos**:
    - Slide 3: composición simple, baja saturación (créditos en el centro).
 2. Para cada slide, llama al renderer correspondiente con los textos que destilaste del transcript:
    - `ov.render_hook(base_urls[0], hook_title, lang=lang)`
-   - `ov.render_info(base_urls[1], bullets, lang=lang)` — `bullets` es una lista de 3-5 frases cortas (≤ 80 caracteres cada una).
+   - `ov.render_info(base_urls[1], argument_sentences, heading=argument_heading, lang=lang)` — ver instrucciones de contenido abajo.
    - `ov.render_credits(base_urls[2], channel_name, video_title, lang=lang)` — `channel_name` viene de `content["channel"]` del Step 1.
 3. Sube cada PNG a Blotato y arma `instagram_media_urls` en orden.
 
@@ -441,19 +441,27 @@ base_urls = fp.generate_carousel(
 )
 
 # Textos destilados del transcript (no inventar — siguen la regla de citas fieles del Step 4)
-hook_title   = "<8-10 palabras que capturen la idea madre>"
-bullets      = ["<insight 1 corto>", "<insight 2 corto>", "<insight 3 corto>"]
+hook_title         = "<8-10 palabras que capturen la idea madre>"
+argument_heading   = "<3-5 palabras específicas al tema del video — no genéricas como 'La idea' o 'Resumen'>"
+argument_sentences = [
+    "<frase 1: plantea el problema o contexto — ≤ 15 palabras>",
+    "<frase 2: el argumento o solución central del video — ≤ 15 palabras>",
+    # frase 3 opcional: consecuencia o matiz relevante
+]
 video_title  = content["title"]
 channel_name = content.get("channel", "")
 
 slides_payload = [
     ("ig-carousel-1-hook.png",    lambda u: ov.render_hook(u, hook_title, lang=lang)),
-    ("ig-carousel-2-info.png",    lambda u: ov.render_info(u, bullets, lang=lang)),
+    ("ig-carousel-2-info.png",    lambda u: ov.render_info(u, argument_sentences, heading=argument_heading, lang=lang)),
     ("ig-carousel-3-credits.png", lambda u: ov.render_credits(u, channel_name, video_title, lang=lang)),
 ]
 
 instagram_media_urls = []
 for (fname, render_fn), base_url in zip(slides_payload, base_urls):
+    if base_url is None:
+        print(f"[aviso] {fname} no se generó — se omite esta slide.")
+        continue
     try:
         png = render_fn(base_url)
         public_url = bc.upload_media_local(png, fname, api_key=cfg["api_key"])
@@ -462,6 +470,19 @@ for (fname, render_fn), base_url in zip(slides_payload, base_urls):
         print(f"[aviso] Overlay/upload falló para {fname} ({e}) — uso la base limpia.")
         instagram_media_urls.append(base_url)
 ```
+
+**Cómo escribir el argumento central (slide 2):**
+
+El objetivo de esta slide es que quien la vea entienda *de qué va el video* en 5 segundos — no un resumen genérico, sino el argumento o tesis específica que desarrolla el autor.
+
+- **`argument_heading`**: 3-5 palabras que nombren el tema concreto del video. Tiene que ser específico — si el video es sobre por qué los horarios matutinos dañan la creatividad, el encabezado podría ser "EL MITO DEL MADRUGADOR". Prohibido usar encabezados genéricos como "LA IDEA", "EN RESUMEN", "DE QUÉ VA" (solo úsalos como último recurso si el video es demasiado vago). Siempre en mayúsculas.
+- **`argument_sentences`**: 2-3 frases que cuenten el argumento del video con estructura narrativa natural:
+  - Frase 1: el problema, pregunta o contexto que el video aborda.
+  - Frase 2: la tesis, solución o insight central que el autor defiende.
+  - Frase 3 (opcional): una consecuencia, matiz o dato que refuerce la idea.
+  - Cada frase ≤ 15 palabras. No usar gerundios encadenados ni listas disfrazadas de frases.
+  - La primera frase se renderiza en color acento (amarillo) para anclarse visualmente — que sea la más impactante o la que planta el problema.
+  - Respeta la regla de citas fieles del Step 4: no fabricar claims que no estén en el transcript.
 
 **Si menos de 2 slides se generaron con éxito**, descarta el carrusel y degrada a imagen única (mejor 1 buena que un carrusel cojo):
 ```python
@@ -479,6 +500,22 @@ if len([u for u in instagram_media_urls if u]) < 2:
 | `ov.render_*` lanza excepción | Avisa, usa la URL limpia de Mystic como fallback |
 | `bc.upload_media_local` falla | Avisa, usa la URL de Freepik directamente (puede caducar antes; aceptable como fallback) |
 | Carrusel con < 2 slides exitosos | Degrada a imagen única |
+
+#### 5.D — Resolver timing (antes de mostrar el Step 6)
+
+Resuelve `schedule_time` ahora, para que el bloque de aprobación lo muestre ya fijo:
+
+- Si el usuario pasó `publicar: ahora` o no pasó `publicar:` → **pregunta**:
+  ```
+  ¿Cuándo quieres publicar?
+    a) Ahora
+    b) Programar para más tarde (fecha en lenguaje natural — "mañana 9am",
+       "viernes 18h" — o en formato ISO-8601: YYYY-MM-DDTHH:MM:SSZ)
+  ```
+  Si responde `a` o no responde → `schedule_time = None`.
+- Si el usuario pasó un **timestamp ISO-8601** → úsalo directamente.
+- Si el usuario pasó **lenguaje natural** en español → conviértelo tú a ISO-8601 UTC relativo a `currentDate`. Si la fecha resultante está en el pasado, avisa con `[error] La fecha programada es en el pasado: <fecha>.` y vuelve a preguntar.
+- Guarda el resultado como `schedule_time` (string ISO-8601 o `None`).
 
 ---
 
@@ -534,18 +571,7 @@ Do not proceed to publishing under any other circumstance.
 
 **Dry-run guard:** If `dry-run: si` was passed in the command, **skip every `bc.publish_post` call** in this step. Jump straight to Step 8 and present the summary, marking each platform with `Status: dry-run (no se envió)`.
 
-**Resolve `schedule_time` (ISO-8601 UTC string or `None`):**
-
-- If the user passed `publicar: ahora` (or `publicar:` is absent and they said `a` to the question below) → `schedule_time = None` (publish immediately).
-- If the user passed an **ISO-8601 timestamp** (e.g. `2026-06-01T14:00:00Z`) → use it as-is.
-- If the user passed **natural language** in Spanish (e.g. `mañana 9am`, `viernes 18h`, `el 3 de junio a las 10am`) → interpret it yourself relative to today's date, convert to ISO-8601 UTC (assume the user's input is in their local interpretation; if ambiguous, default to UTC and warn). Confirm the conversion in the Step 6 approval block (e.g. `Timing: programado para 2026-05-16T09:00:00Z (mañana 9am)`). If the parsed date is in the past, abort with `[error] La fecha programada es en el pasado: <fecha>.` and re-ask.
-- If `publicar:` is absent, ask:
-  ```
-  ¿Cuándo quieres publicar?
-    a) Ahora
-    b) Programar para más tarde (responde con una fecha en lenguaje natural —
-       "mañana 9am", "viernes 18h" — o en formato ISO-8601: YYYY-MM-DDTHH:MM:SSZ)
-  ```
+Use the `schedule_time` already resolved in Step 5.D. If the user edited timing during Step 6, re-apply the same conversion rules.
 
 **Platform filter:** If `solo: linkedin` was passed, only execute the LinkedIn publish block (skip Instagram entirely). Same for `solo: instagram`.
 

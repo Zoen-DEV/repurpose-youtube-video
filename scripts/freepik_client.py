@@ -41,8 +41,12 @@ def _request(method: str, path: str, body: dict | None = None, *, api_key: str) 
         if e.code == 429:
             print("   [freepik rate-limit] Waiting 10s and retrying...")
             time.sleep(10)
-            with urllib.request.urlopen(req) as resp:
-                return json.loads(resp.read())
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    return json.loads(resp.read())
+            except urllib.error.HTTPError as e2:
+                body2 = e2.read().decode(errors="replace")
+                raise RuntimeError(f"Freepik HTTP {e2.code} {method} {path}: {body2}") from e2
         raise RuntimeError(f"Freepik HTTP {e.code} {method} {path}: {body_text}") from e
 
 
@@ -110,19 +114,27 @@ def generate_carousel(
     *,
     api_key: str,
     aspect_ratio: str = "square_1_1",
-) -> list[str]:
+) -> list[str | None]:
     """
-    Generate N images sequentially - one per prompt - for an Instagram carousel.
-    Returns a flat list of URLs in input order, skipping any prompt whose
-    generation failed (so a single bad slide does not break the whole carousel).
+    Generate N images in parallel - one per prompt - for an Instagram carousel.
+    Returns a list of length N in input order: URL on success, None on failure.
+    Callers must handle None entries (skip or degrade) to avoid slide misalignment.
     """
-    urls: list[str] = []
-    for i, p in enumerate(prompts, 1):
-        print(f"   [freepik] Generating carousel image {i}/{len(prompts)}...")
+    from concurrent.futures import ThreadPoolExecutor
+
+    n = len(prompts)
+    results: list[str | None] = [None] * n
+
+    def _gen(idx: int) -> None:
+        print(f"   [freepik] Generating carousel image {idx + 1}/{n}...")
         try:
-            result = generate_image(p, api_key=api_key, aspect_ratio=aspect_ratio)
-            if result:
-                urls.append(result[0])
+            urls = generate_image(prompts[idx], api_key=api_key, aspect_ratio=aspect_ratio)
+            if urls:
+                results[idx] = urls[0]
         except Exception as e:
-            print(f"   [freepik] Image {i} failed: {e}")
-    return urls
+            print(f"   [freepik] Image {idx + 1} failed: {e}")
+
+    with ThreadPoolExecutor(max_workers=n) as ex:
+        list(ex.map(_gen, range(n)))
+
+    return results
